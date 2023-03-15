@@ -40,6 +40,15 @@ class Repositories {
       mavenLocal()
       jcenter()
 
+      maven {
+        url "https://art.code.pan.run:443/artifactory/maven-datalake/"
+        credentials {
+          username = System.getenv("ARTIFACTORY_API_USERNAME")
+          password = System.getenv("ARTIFACTORY_API_PASSWORD")
+        }
+        artifactUrls("https://art.code.pan.run/ui/native/maven-datalake/org/apache/flink/")
+      }
+
       // For pentaho dependencies.
       maven {
         url "https://public.nexus.pentaho.org/repository/proxy-public-3rd-party-release"

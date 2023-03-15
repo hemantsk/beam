@@ -31,7 +31,9 @@ applyJavaNature(
     automaticModuleName: 'org.apache.beam.runners.flink',
     archivesBaseName: (project.hasProperty('archives_base_name') ? archives_base_name : archivesBaseName),
 )
-
+if (project.flink_version == "1.13.6") {
+  project.flink_version = project.flink_version + "-PAN"
+}
 description = "Apache Beam :: Runners :: Flink $flink_version"
 
 /*

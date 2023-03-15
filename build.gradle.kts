@@ -29,6 +29,9 @@ plugins {
   id("net.researchgate.release") version "2.8.1"
   id("org.apache.beam.module")
   id("org.sonarqube") version "3.0"
+  id("maven-publish")
+  id("java")
+  id("java-library")
 }
 
 /*************************************************************************************************/
@@ -138,6 +141,101 @@ tasks.check.get().dependsOn(tasks.rat)
 // to be specified on the commandline when executing locally.
 // This indirection also makes Jenkins use the branch of the PR
 // for the test definitions.
+
+allprojects {
+  apply(plugin = "maven-publish")
+  publishing {
+    publications {
+      create<MavenPublication>("mavenJava") {
+        groupId = "org.apache.beam"
+      }
+    }
+    repositories {
+      maven {
+        name = "maven-datalake"
+        url = uri("https://art.code.pan.run:443/artifactory/maven-datalake")
+        credentials {
+          username = System.getenv("ARTIFACTORY_API_USERNAME")
+          password = System.getenv("ARTIFACTORY_API_PASSWORD")
+        }
+      }
+    }
+  }
+}
+
+task("panwJavaPreCommit") {
+  // We need to list the model/* builds since sdks/java/core doesn't
+  // depend on any of the model.
+  dependsOn(":model:pipeline:build")
+  dependsOn(":model:job-management:build")
+  dependsOn(":model:fn-execution:build")
+  dependsOn(":runners:google-cloud-dataflow-java:worker:build")
+  dependsOn(":sdks:java:core:buildNeeded")
+
+  // Inline :sdks:java:core:buildDependents so we can carve out pieces at a time
+  dependsOn(":beam-validate-runner:build")
+  dependsOn(":model:fn-execution:build")
+  dependsOn(":model:job-management:build")
+  dependsOn(":model:pipeline:build")
+  dependsOn(":runners:core-construction-java:build")
+  dependsOn(":runners:core-java:build")
+  dependsOn(":runners:direct-java:build")
+  dependsOn(":runners:extensions-java:metrics:build")
+  dependsOn(":runners:flink:1.12:build")
+  dependsOn(":runners:flink:1.12:job-server:build")
+  dependsOn(":runners:flink:1.13:build")
+  dependsOn(":runners:flink:1.13:job-server:build")
+  dependsOn(":runners:google-cloud-dataflow-java:build")
+  dependsOn(":runners:google-cloud-dataflow-java:examples-streaming:build")
+  dependsOn(":runners:google-cloud-dataflow-java:examples:build")
+  dependsOn(":runners:google-cloud-dataflow-java:worker:build")
+  dependsOn(":runners:google-cloud-dataflow-java:worker:windmill:build")
+  dependsOn(":runners:java-fn-execution:build")
+  dependsOn(":runners:java-job-service:build")
+  dependsOn(":runners:jet:build")
+  dependsOn(":runners:local-java:build")
+  dependsOn(":runners:portability:java:build")
+  dependsOn(":runners:samza:build")
+  dependsOn(":runners:samza:job-server:build")
+  dependsOn(":runners:spark:3:build")
+  dependsOn(":runners:spark:3:job-server:build")
+  dependsOn(":runners:twister2:build")
+  dependsOn(":sdks:java:build-tools:build")
+  dependsOn(":sdks:java:core:build")
+  dependsOn(":sdks:java:core:jmh:build")
+  dependsOn(":sdks:java:expansion-service:build")
+  dependsOn(":sdks:java:expansion-service:app:build")
+  dependsOn(":sdks:java:extensions:arrow:build")
+  dependsOn(":sdks:java:extensions:avro:build")
+  dependsOn(":sdks:java:extensions:euphoria:build")
+  dependsOn(":sdks:java:extensions:google-cloud-platform-core:build")
+  dependsOn(":sdks:java:extensions:jackson:build")
+  dependsOn(":sdks:java:extensions:join-library:build")
+  dependsOn(":sdks:java:extensions:kryo:build")
+  dependsOn(":sdks:java:extensions:ml:build")
+  dependsOn(":sdks:java:extensions:protobuf:build")
+  dependsOn(":sdks:java:extensions:python:build")
+  dependsOn(":sdks:java:extensions:sbe:build")
+  dependsOn(":sdks:java:extensions:schemaio-expansion-service:build")
+  dependsOn(":sdks:java:extensions:sketching:build")
+  dependsOn(":sdks:java:extensions:sorter:build")
+  dependsOn(":sdks:java:extensions:sql:build")
+  dependsOn(":sdks:java:extensions:sql:datacatalog:build")
+  dependsOn(":sdks:java:extensions:sql:expansion-service:build")
+  dependsOn(":sdks:java:extensions:sql:hcatalog:build")
+  dependsOn(":sdks:java:extensions:sql:jdbc:build")
+  dependsOn(":sdks:java:extensions:sql:perf-tests:build")
+  dependsOn(":sdks:java:extensions:sql:shell:build")
+  dependsOn(":sdks:java:extensions:sql:udf-test-provider:build")
+  dependsOn(":sdks:java:extensions:sql:udf:build")
+  dependsOn(":sdks:java:extensions:sql:zetasql:build")
+  dependsOn(":sdks:java:extensions:zetasketch:build")
+  dependsOn(":sdks:java:fn-execution:build")
+  dependsOn(":sdks:java:harness:build")
+  dependsOn(":sdks:java:harness:jmh:build")
+  dependsOn(":sdks:java:extensions:sql:jdbc:preCommit")
+}
+
 task("javaPreCommit") {
   // We need to list the model/* builds since sdks/java/core doesn't
   // depend on any of the model.

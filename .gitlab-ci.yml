@@ -1,0 +1,33 @@
+include:
+  - project: engineering-productivity/ci-templates
+    ref:     master
+    file:    output/docker/base.yaml
+
+  - project: 'build-tools/ci-templates'
+    ref: master
+    file: 'cdl_build.yaml'
+
+  - project: 'datalake/data-platform-services/ci-cd'
+    ref: master
+    file: 'common_utils/templates/cdl_deploy.yaml'
+
+  - project: engineering-productivity/ci-templates
+    ref:     master
+    file:    output/helm/base.yaml
+
+default:
+  tags:
+    - us-central1
+
+stages:
+  - build
+
+build-jdk11:
+  extends: ".build"
+  stage: build
+  image: docker.art.code.pan.run/gradle:1.0.17
+  script:
+    - ./gradlew publish -PdisableSpotlessCheck=true -PdisableCheckStyle=true --continue --max-workers=8 -Dorg.gradle.jvmargs=-Xms2g -Dorg.gradle.jvmargs=-Xmx6g -Dorg.gradle.vfs.watch=false -Pdocker-pull-licenses -xjavadoc -xtest -xpublishMavenJavaPublicationToApache.snapshots.httpsRepository -x:sdks:java:maven-archetypes:gcp-bom-examples:generateSources -x:sdks:java:maven-archetypes:examples:generateSources -xpublishMavenJavaPublicationToTestPublicationLocalRepository -x:sdks:java:io:hcatalog:compileJava -x :sdks:java:io:hcatalog:compileTestJava -x:sdks:java:extensions:sql:hcatalog:compileJava -x:sdks:java:extensions:sql:hcatalog:compileTestJava
+  tags:
+    - gce
+
