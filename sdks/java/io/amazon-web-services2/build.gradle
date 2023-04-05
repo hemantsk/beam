@@ -30,6 +30,8 @@ ext.summary = "IO library to read and write Amazon Web Services services from Be
 
 dependencies {
   compile library.java.vendored_guava_26_0_jre
+  compile group: 'software.amazon.awssdk', name: 'sts', version: '2.17.266'
+  compile group: 'software.amazon.awssdk', name: 'url-connection-client', version: '2.17.267'
   compile project(path: ":sdks:java:core", configuration: "shadow")
   compile library.java.aws_java_sdk2_apache_client
   compile library.java.aws_java_sdk2_auth
