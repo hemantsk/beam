@@ -229,7 +229,8 @@ class FlinkStreamingTransformTranslators {
                 .addSource(sourceWrapper)
                 .name(fullName)
                 .uid(fullName)
-                .returns(withIdTypeInfo);
+                .returns(withIdTypeInfo)
+                .setMaxParallelism(sourceWrapper.getSplitSources().size());
 
         if (rawSource.requiresDeduping()) {
           source =
@@ -660,6 +661,7 @@ class FlinkStreamingTransformTranslators {
         }
       }
 
+      outputStream.setMaxParallelism(inputDataStream.getParallelism());
       outputStream.uid(transformName);
       context.setOutputDataStream(outputs.get(mainOutputTag), outputStream);
 
