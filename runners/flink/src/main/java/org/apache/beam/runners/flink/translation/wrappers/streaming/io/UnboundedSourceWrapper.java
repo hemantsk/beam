@@ -32,7 +32,9 @@ import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.coders.KvCoder;
 import org.apache.beam.sdk.coders.SerializableCoder;
 import org.apache.beam.sdk.io.FileSystems;
+import org.apache.beam.sdk.io.Source.Reader;
 import org.apache.beam.sdk.io.UnboundedSource;
+import org.apache.beam.sdk.io.UnboundedSource.UnboundedReader;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
 import org.apache.beam.sdk.transforms.windowing.GlobalWindow;
@@ -62,15 +64,15 @@ import org.slf4j.LoggerFactory;
 
 /** Wrapper for executing {@link UnboundedSource UnboundedSources} as a Flink Source. */
 @SuppressWarnings({
-  "rawtypes", // TODO(https://issues.apache.org/jira/browse/BEAM-10556)
-  "nullness" // TODO(https://issues.apache.org/jira/browse/BEAM-10402)
+    "rawtypes", // TODO(https://issues.apache.org/jira/browse/BEAM-10556)
+    "nullness" // TODO(https://issues.apache.org/jira/browse/BEAM-10402)
 })
 public class UnboundedSourceWrapper<OutputT, CheckpointMarkT extends UnboundedSource.CheckpointMark>
     extends RichParallelSourceFunction<WindowedValue<ValueWithRecordId<OutputT>>>
     implements ProcessingTimeCallback,
-        BeamStoppableFunction,
-        CheckpointListener,
-        CheckpointedFunction {
+    BeamStoppableFunction,
+    CheckpointListener,
+    CheckpointedFunction {
 
   private static final Logger LOG = LoggerFactory.getLogger(UnboundedSourceWrapper.class);
 
@@ -131,7 +133,7 @@ public class UnboundedSourceWrapper<OutputT, CheckpointMarkT extends UnboundedSo
   private static final int MAX_NUMBER_PENDING_CHECKPOINTS = 32;
 
   private transient ListState<
-          KV<? extends UnboundedSource<OutputT, CheckpointMarkT>, CheckpointMarkT>>
+      KV<? extends UnboundedSource<OutputT, CheckpointMarkT>, CheckpointMarkT>>
       stateForCheckpoint;
 
   /** false if checkpointCoder is null or no restore state by starting first. */
@@ -142,6 +144,7 @@ public class UnboundedSourceWrapper<OutputT, CheckpointMarkT extends UnboundedSo
 
   /** Metrics container which will be reported as Flink accumulators at the end of the job. */
   private transient FlinkMetricContainer metricContainer;
+  private transient ReaderInvocationUtil<OutputT, UnboundedReader<OutputT>> readerInvoker;
 
   @SuppressWarnings("unchecked")
   public UnboundedSourceWrapper(
@@ -229,7 +232,7 @@ public class UnboundedSourceWrapper<OutputT, CheckpointMarkT extends UnboundedSo
 
     context = ctx;
 
-    ReaderInvocationUtil<OutputT, UnboundedSource.UnboundedReader<OutputT>> readerInvoker =
+    readerInvoker =
         new ReaderInvocationUtil<>(stepName, serializedOptions.get(), metricContainer);
 
     setNextWatermarkTimer(this.runtimeContext);
@@ -247,6 +250,7 @@ public class UnboundedSourceWrapper<OutputT, CheckpointMarkT extends UnboundedSo
         UnboundedSource.UnboundedReader<OutputT> reader = localReaders.get(i);
 
         synchronized (ctx.getCheckpointLock()) {
+          LOG.info("invoke Start");
           boolean dataAvailable = readerInvoker.invokeStart(reader);
           if (dataAvailable) {
             emitElement(ctx, reader);
@@ -256,6 +260,7 @@ public class UnboundedSourceWrapper<OutputT, CheckpointMarkT extends UnboundedSo
         boolean dataAvailable;
         do {
           synchronized (ctx.getCheckpointLock()) {
+            LOG.info("invoke Advance");
             dataAvailable = readerInvoker.invokeAdvance(reader);
 
             if (dataAvailable) {
@@ -274,6 +279,7 @@ public class UnboundedSourceWrapper<OutputT, CheckpointMarkT extends UnboundedSo
       // start each reader and emit data if immediately available
       for (UnboundedSource.UnboundedReader<OutputT> reader : localReaders) {
         synchronized (ctx.getCheckpointLock()) {
+          LOG.info("invoke Start from Unbound");
           boolean dataAvailable = readerInvoker.invokeStart(reader);
           if (dataAvailable) {
             emitElement(ctx, reader);
@@ -288,6 +294,7 @@ public class UnboundedSourceWrapper<OutputT, CheckpointMarkT extends UnboundedSo
         UnboundedSource.UnboundedReader<OutputT> reader = localReaders.get(currentReader);
 
         synchronized (ctx.getCheckpointLock()) {
+          LOG.info("invoke Advance from Unbound");
           if (readerInvoker.invokeAdvance(reader)) {
             emitElement(ctx, reader);
             hadData = true;
@@ -404,8 +411,9 @@ public class UnboundedSourceWrapper<OutputT, CheckpointMarkT extends UnboundedSo
         UnboundedSource<OutputT, CheckpointMarkT> source = localSplitSources.get(i);
         UnboundedSource.UnboundedReader<OutputT> reader = localReaders.get(i);
 
+        LOG.info("invoke checkpoint from Unbound: " + reader.toString());
         @SuppressWarnings("unchecked")
-        CheckpointMarkT mark = (CheckpointMarkT) reader.getCheckpointMark();
+        CheckpointMarkT mark = (CheckpointMarkT) readerInvoker.invokeCheckpointMark(reader);
         checkpointMarks.add(mark);
         KV<UnboundedSource<OutputT, CheckpointMarkT>, CheckpointMarkT> kv = KV.of(source, mark);
         stateForCheckpoint.add(kv);
@@ -434,8 +442,8 @@ public class UnboundedSourceWrapper<OutputT, CheckpointMarkT extends UnboundedSo
     @SuppressWarnings("unchecked")
     CoderTypeInformation<KV<? extends UnboundedSource<OutputT, CheckpointMarkT>, CheckpointMarkT>>
         typeInformation =
-            (CoderTypeInformation)
-                new CoderTypeInformation<>(checkpointCoder, serializedOptions.get());
+        (CoderTypeInformation)
+            new CoderTypeInformation<>(checkpointCoder, serializedOptions.get());
     stateForCheckpoint =
         stateStore.getListState(
             new ListStateDescriptor<>(

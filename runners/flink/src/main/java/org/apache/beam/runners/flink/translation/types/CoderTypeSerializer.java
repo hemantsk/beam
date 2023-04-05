@@ -19,6 +19,8 @@ package org.apache.beam.runners.flink.translation.types;
 
 import java.io.EOFException;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Iterator;
 import org.apache.beam.runners.core.construction.SerializablePipelineOptions;
 import org.apache.beam.runners.flink.FlinkPipelineOptions;
 import org.apache.beam.runners.flink.translation.wrappers.DataInputViewWrapper;
@@ -26,6 +28,7 @@ import org.apache.beam.runners.flink.translation.wrappers.DataOutputViewWrapper;
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.coders.CoderException;
 import org.apache.beam.sdk.util.CoderUtils;
+import org.apache.beam.sdk.util.common.ReflectHelpers;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.base.Preconditions;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.api.common.typeutils.TypeSerializerConfigSnapshot;
@@ -34,17 +37,29 @@ import org.apache.flink.api.common.typeutils.TypeSerializerSnapshot;
 import org.apache.flink.core.io.VersionedIOReadableWritable;
 import org.apache.flink.core.memory.DataInputView;
 import org.apache.flink.core.memory.DataOutputView;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.JsonNode;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.node.ObjectNode;
 import org.checkerframework.checker.nullness.qual.Nullable;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.core.JsonProcessingException;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Flink {@link org.apache.flink.api.common.typeutils.TypeSerializer} for Beam {@link
  * org.apache.beam.sdk.coders.Coder Coders}.
  */
 @SuppressWarnings({
-  "rawtypes", // TODO(https://issues.apache.org/jira/browse/BEAM-10556)
-  "nullness" // TODO(https://issues.apache.org/jira/browse/BEAM-10402)
+    "rawtypes", // TODO(https://issues.apache.org/jira/browse/BEAM-10556)
+    "nullness" // TODO(https://issues.apache.org/jira/browse/BEAM-10402)
 })
 public class CoderTypeSerializer<T> extends TypeSerializer<T> {
+
+  private static final Logger LOG = LoggerFactory.getLogger(CoderTypeSerializer.class);
+
+  private static final ObjectMapper MAPPER =
+      new ObjectMapper()
+          .registerModules(ObjectMapper.findModules(ReflectHelpers.findClassLoader()));
 
   private final Coder<T> coder;
 
@@ -61,8 +76,7 @@ public class CoderTypeSerializer<T> extends TypeSerializer<T> {
     Preconditions.checkNotNull(coder);
     Preconditions.checkNotNull(pipelineOptions);
     this.coder = coder;
-    this.pipelineOptions = pipelineOptions;
-
+    this.pipelineOptions = removeSubscriptionConfig(pipelineOptions);
     FlinkPipelineOptions options = pipelineOptions.get().as(FlinkPipelineOptions.class);
     this.fasterCopy = options.getFasterCopy();
   }
@@ -186,5 +200,33 @@ public class CoderTypeSerializer<T> extends TypeSerializer<T> {
   @Override
   public String toString() {
     return "CoderTypeSerializer{" + "coder=" + coder + '}';
+  }
+
+  public static SerializablePipelineOptions removeSubscriptionConfig(SerializablePipelineOptions pipelineOptions){
+    try {
+      ObjectNode jsonObject = MAPPER.readValue(pipelineOptions.toString(), ObjectNode.class);
+
+      //Remove pipeline options which belongs to CDL.
+      ArrayList<String> removedKeys = new ArrayList<>();
+      Iterator<JsonNode> display_data = jsonObject.get("display_data").elements();
+      while(display_data.hasNext()) {
+        JsonNode node = display_data.next();
+        if(node.get("namespace").textValue().equals("com.paloaltonetworks.cortex.streamcompute.config.PipelineConfig")){
+          removedKeys.add(node.get("key").textValue());
+          display_data.remove();
+        }
+      }
+      //SubscriptionConfigRemove from options
+      //options.remove("subscriptionConfigMap");
+      //options.remove("clusterConfigMap");
+      ObjectNode options = (ObjectNode) jsonObject.get("options");
+      for(int i = 0; i < removedKeys.size(); i++){
+        options.remove(removedKeys.get(i));
+      }
+      return new SerializablePipelineOptions(MAPPER.writeValueAsString(jsonObject));
+    } catch (JsonProcessingException e) {
+      LOG.error("Unable to remove subscriptionConfig from pipeline options", e);
+    }
+    return pipelineOptions;
   }
 }
