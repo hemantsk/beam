@@ -15,6 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.beam.sdk.extensions.sql.impl.rel;
 
 import static org.apache.beam.vendor.calcite.v1_20_0.com.google.common.base.MoreObjects.firstNonNull;
@@ -49,7 +50,6 @@ import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PCollectionList;
 import org.apache.beam.sdk.values.Row;
-import org.apache.beam.sdk.values.WindowingStrategy;
 import org.apache.beam.vendor.calcite.v1_20_0.org.apache.calcite.plan.RelOptCluster;
 import org.apache.beam.vendor.calcite.v1_20_0.org.apache.calcite.plan.RelOptPlanner;
 import org.apache.beam.vendor.calcite.v1_20_0.org.apache.calcite.plan.RelTraitSet;
@@ -91,11 +91,8 @@ import org.apache.beam.vendor.calcite.v1_20_0.org.apache.calcite.sql.type.SqlTyp
  *       make much sense to use ORDER BY with WINDOW.
  * </ul>
  */
-@SuppressWarnings({
-  "rawtypes", // TODO(https://issues.apache.org/jira/browse/BEAM-10556)
-  "nullness" // TODO(https://issues.apache.org/jira/browse/BEAM-10402)
-})
 public class BeamSortRel extends Sort implements BeamRelNode {
+
   private List<Integer> fieldIndices = new ArrayList<>();
   private List<Boolean> orientation = new ArrayList<>();
   private List<Boolean> nullsFirst = new ArrayList<>();
@@ -103,6 +100,16 @@ public class BeamSortRel extends Sort implements BeamRelNode {
   private int startIndex = 0;
   private int count;
 
+  /**
+   * Creates a Sort.
+   *
+   * @param cluster   Cluster this relational expression belongs to
+   * @param traits    Traits
+   * @param child     input relational expression
+   * @param collation array of sort specifications
+   * @param offset    Starting element from beginning
+   * @param fetch     Element count to be fecthed
+   */
   public BeamSortRel(
       RelOptCluster cluster,
       RelTraitSet traits,
@@ -195,15 +202,6 @@ public class BeamSortRel extends Sort implements BeamRelNode {
             .apply(new LimitTransform<>(startIndex))
             .setRowSchema(CalciteUtils.toSchema(getRowType()));
       } else {
-
-        WindowingStrategy<?, ?> windowingStrategy = upstream.getWindowingStrategy();
-        if (!(windowingStrategy.getWindowFn() instanceof GlobalWindows)) {
-          throw new UnsupportedOperationException(
-              String.format(
-                  "`ORDER BY` is only supported for %s, actual windowing strategy: %s",
-                  GlobalWindows.class.getSimpleName(), windowingStrategy));
-        }
-
         ReversedBeamSqlRowComparator comparator =
             new ReversedBeamSqlRowComparator(fieldIndices, orientation, nullsFirst);
 
@@ -233,6 +231,7 @@ public class BeamSortRel extends Sort implements BeamRelNode {
   }
 
   private class LimitTransform<T> extends PTransform<PCollection<T>, PCollection<T>> {
+
     private final int startIndex;
 
     public LimitTransform(int startIndex) {
@@ -250,6 +249,7 @@ public class BeamSortRel extends Sort implements BeamRelNode {
   }
 
   private static class LimitFn<T> extends DoFn<KV<String, T>, T> {
+
     private final Integer limitCount;
     private final Integer startIndex;
 
@@ -284,6 +284,7 @@ public class BeamSortRel extends Sort implements BeamRelNode {
   }
 
   private static class SubListFn<T> extends DoFn<List<T>, List<T>> {
+
     private int startIndex;
     private int endIndex;
 
@@ -308,7 +309,8 @@ public class BeamSortRel extends Sort implements BeamRelNode {
     return new BeamSortRel(getCluster(), traitSet, newInput, newCollation, offset, fetch);
   }
 
-  public static class BeamSqlRowComparator implements Comparator<Row>, Serializable {
+  static class BeamSqlRowComparator implements Comparator<Row>, Serializable {
+
     private List<Integer> fieldsIndices;
     private List<Boolean> orientation;
     private List<Boolean> nullsFirst;
@@ -349,8 +351,8 @@ public class BeamSortRel extends Sort implements BeamRelNode {
             case VARCHAR:
             case DATE:
             case TIMESTAMP:
-              Comparable v1 = row1.getBaseValue(fieldIndex, Comparable.class);
-              Comparable v2 = row2.getBaseValue(fieldIndex, Comparable.class);
+              Comparable v1 = (Comparable) row1.getValue(fieldIndex);
+              Comparable v2 = (Comparable) row2.getValue(fieldIndex);
               fieldRet = v1.compareTo(v2);
               break;
             default:
@@ -370,6 +372,7 @@ public class BeamSortRel extends Sort implements BeamRelNode {
   }
 
   private static class ReversedBeamSqlRowComparator implements Comparator<Row>, Serializable {
+
     private final BeamSqlRowComparator comparator;
 
     public ReversedBeamSqlRowComparator(

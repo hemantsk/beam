@@ -19,14 +19,20 @@ package org.apache.beam.sdk.io.aws2.options;
 
 import org.apache.beam.sdk.annotations.Experimental;
 import org.apache.beam.sdk.annotations.Experimental.Kind;
+import org.apache.beam.sdk.io.aws2.common.ClientBuilderFactory;
+import org.apache.beam.sdk.io.aws2.common.HttpClientConfiguration;
 import org.apache.beam.sdk.options.Default;
 import org.apache.beam.sdk.options.DefaultValueFactory;
 import org.apache.beam.sdk.options.Description;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.Validation;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
+import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.http.apache.ProxyConfiguration;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.regions.providers.DefaultAwsRegionProviderChain;
 import software.amazon.awssdk.utils.AttributeMap;
 
 /**
@@ -36,11 +42,25 @@ import software.amazon.awssdk.utils.AttributeMap;
 public interface AwsOptions extends PipelineOptions {
 
   /** AWS region used by the AWS client. */
-  @Description("AWS region used by the AWS client")
-  @Validation.Required
+  /** Region used to configure AWS service clients. */
+  @Description("Region used by AWS service clients")
+  @Default.InstanceFactory(AwsRegionFactory.class)
   String getAwsRegion();
 
-  void setAwsRegion(String value);
+  void setAwsRegion(String region);
+
+  /** Attempt to load default region. */
+  class AwsRegionFactory implements DefaultValueFactory<@Nullable String> {
+    @Override
+    @Nullable
+    public String create(PipelineOptions options) {
+      try {
+        return new DefaultAwsRegionProviderChain().getRegion().toString();
+      } catch (SdkClientException e) {
+        return null;
+      }
+    }
+  }
 
   /** The AWS service endpoint used by the AWS client. */
   @Description("AWS service endpoint used by the AWS client")
@@ -126,4 +146,24 @@ public interface AwsOptions extends PipelineOptions {
   AttributeMap getAttributeMap();
 
   void setAttributeMap(AttributeMap attributeMap);
+
+  /**
+   * {@link HttpClientConfiguration} used to configure AWS service clients.
+   *
+   * <p>Example:
+   *
+   * <pre>{@code --httpClientConfiguration={"socketTimeout":1000, "maxConnections":10}}</pre>
+   */
+  @Description(
+      "The HTTP client configuration used to configure AWS service clients. Example: "
+          + "--httpClientConfiguration={\"socketTimeout\":1000,\"maxConnections\":10}")
+  HttpClientConfiguration getHttpClientConfiguration();
+
+  void setHttpClientConfiguration(HttpClientConfiguration value);
+
+  @Description("Factory class to configure AWS client builders")
+  @Default.Class(ClientBuilderFactory.DefaultClientBuilder.class)
+  Class<? extends ClientBuilderFactory> getClientBuilderFactory();
+
+  void setClientBuilderFactory(Class<? extends ClientBuilderFactory> clazz);
 }
