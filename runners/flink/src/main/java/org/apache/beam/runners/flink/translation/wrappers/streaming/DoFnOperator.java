@@ -216,17 +216,21 @@ public class DoFnOperator<InputT, OutputT>
           try {
             runnable.run();
             isRetryRequired = false;
-          } catch (Throwable throwable) {
+          }  catch (Throwable throwable) {
             LOG.error("Received exception: ", throwable);
             if (throwable instanceof OutOfMemoryError
                 || Duration.between(startTime, java.time.Instant.now()).toMinutes()
                 > RETRY_EXPIRY) {
+              throw new RuntimeException(throwable);
+            } else if (throwable instanceof InterruptedException) {
+              LOG.error("Interrupted: ", throwable);
               throw new RuntimeException(throwable);
             } else {
               try {
                 TimeUnit.MILLISECONDS.sleep(RETRY_TIME_MS);
               } catch (InterruptedException e) {
                 LOG.error("Interrupted: ", e);
+                throw new RuntimeException(e);
               }
             }
           }
