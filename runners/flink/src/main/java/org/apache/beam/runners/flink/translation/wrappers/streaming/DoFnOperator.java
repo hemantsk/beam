@@ -87,6 +87,7 @@ import org.apache.beam.sdk.transforms.reflect.DoFnSignatures;
 import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
 import org.apache.beam.sdk.transforms.windowing.GlobalWindow;
 import org.apache.beam.sdk.util.NoopLock;
+import org.apache.beam.sdk.util.UserCodeException;
 import org.apache.beam.sdk.util.WindowedValue;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollectionView;
@@ -121,7 +122,9 @@ import org.apache.flink.streaming.api.operators.Triggerable;
 import org.apache.flink.streaming.api.operators.TwoInputStreamOperator;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
+import org.apache.flink.streaming.runtime.tasks.ExceptionInChainedOperatorException;
 import org.apache.flink.streaming.runtime.tasks.StreamTask;
+import org.apache.flink.util.ExceptionUtils;
 import org.apache.flink.util.OutputTag;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.joda.time.Instant;
@@ -137,21 +140,21 @@ import org.slf4j.LoggerFactory;
 // We use Flink's lifecycle methods to initialize transient fields
 @SuppressFBWarnings("SE_TRANSIENT_FIELD_NOT_RESTORED")
 @SuppressWarnings({
-  "rawtypes", // TODO(https://issues.apache.org/jira/browse/BEAM-10556)
-  "keyfor",
-  "nullness"
+    "rawtypes", // TODO(https://issues.apache.org/jira/browse/BEAM-10556)
+    "keyfor",
+    "nullness"
 }) // TODO(https://issues.apache.org/jira/browse/BEAM-10402)
 public class DoFnOperator<InputT, OutputT>
     extends AbstractStreamOperatorCompat<WindowedValue<OutputT>>
     implements OneInputStreamOperator<WindowedValue<InputT>, WindowedValue<OutputT>>,
-        TwoInputStreamOperator<WindowedValue<InputT>, RawUnionValue, WindowedValue<OutputT>>,
-        Triggerable<ByteBuffer, TimerData> {
+    TwoInputStreamOperator<WindowedValue<InputT>, RawUnionValue, WindowedValue<OutputT>>,
+    Triggerable<ByteBuffer, TimerData> {
 
   private static final Logger LOG = LoggerFactory.getLogger(DoFnOperator.class);
 
   private static final int RETRY_TIME_MS = 1000;
 
-  private static final int RETRY_EXPIRY = 5;
+  private static final int RETRY_EXPIRY = 30;
 
   protected DoFn<InputT, OutputT> doFn;
 
@@ -219,24 +222,26 @@ public class DoFnOperator<InputT, OutputT>
           }  catch (Throwable throwable) {
             LOG.error("Received exception: ", throwable);
             if (throwable instanceof OutOfMemoryError
-                || Duration.between(startTime, java.time.Instant.now()).toMinutes()
+                || Duration.between(startTime, java.time.Instant.now()).toSeconds()
                 > RETRY_EXPIRY) {
               throw new RuntimeException(throwable);
             } else if (throwable instanceof InterruptedException) {
-              LOG.error("Interrupted: ", throwable);
+              LOG.error("Interrupted on executing");
               throw new RuntimeException(throwable);
+            } else if (throwable instanceof UserCodeException) {
+              LOG.error("Interrupted during Emit");
+              throw throwable;
             } else {
               try {
                 TimeUnit.MILLISECONDS.sleep(RETRY_TIME_MS);
               } catch (InterruptedException e) {
-                LOG.error("Interrupted: ", e);
+                LOG.error("Interrupted on idle: ", e);
                 throw new RuntimeException(e);
               }
             }
           }
         }
       };
-
 
   /** Stores new finalizations being gathered. */
   private transient InMemoryBundleFinalizer bundleFinalizer;
@@ -840,7 +845,7 @@ public class DoFnOperator<InputT, OutputT>
       // Check if the final watermark was triggered to perform state cleanup for global window
       if (keyedStateInternals != null
           && currentOutputWatermark
-              > adjustTimestampForFlink(GlobalWindow.INSTANCE.maxTimestamp().getMillis())) {
+          > adjustTimestampForFlink(GlobalWindow.INSTANCE.maxTimestamp().getMillis())) {
         keyedStateInternals.clearGlobalState();
       }
     }
@@ -1161,11 +1166,7 @@ public class DoFnOperator<InputT, OutputT>
     @Override
     public <T> void output(TupleTag<T> tag, WindowedValue<T> value) {
       if (!openBuffer) {
-        try {
-          emit(tag, value);
-        } catch (Exception e) {
-          LOG.error("emit error: {}", e);
-        }
+        emit(tag, value);
       } else {
         buffer(KV.of(tagsToIds.get(tag), value));
       }
