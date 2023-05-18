@@ -17,6 +17,9 @@
  */
 package org.apache.beam.runners.flink;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -36,6 +39,7 @@ import org.apache.beam.sdk.runners.TransformHierarchy;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.transforms.View;
 import org.apache.beam.vendor.guava.v26_0_jre.com.google.common.annotations.VisibleForTesting;
+import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.JobExecutionResult;
 import org.apache.flink.runtime.jobgraph.JobGraph;
 import org.slf4j.Logger;
@@ -47,11 +51,14 @@ import org.slf4j.LoggerFactory;
  * configuration.
  */
 @SuppressWarnings({
-  "nullness" // TODO(https://issues.apache.org/jira/browse/BEAM-10402)
+    "nullness" // TODO(https://issues.apache.org/jira/browse/BEAM-10402)
 })
 public class FlinkRunner extends PipelineRunner<PipelineResult> {
 
   private static final Logger LOG = LoggerFactory.getLogger(FlinkRunner.class);
+  private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+  private static final TypeReference<HashMap<String, Object>> TYPE_REF_VAL_OBJECT =
+      new TypeReference<HashMap<String, Object>>() {};
 
   /** Provided options. */
   private final FlinkPipelineOptions options;
@@ -96,6 +103,16 @@ public class FlinkRunner extends PipelineRunner<PipelineResult> {
 
     LOG.info("Translating pipeline to Flink program.");
     env.translate(pipeline);
+
+    Map<String, Object> userMap = OBJECT_MAPPER.convertValue(pipeline.getOptions(),
+        TYPE_REF_VAL_OBJECT);
+
+    env.getStreamExecutionEnvironment().getConfig()
+        .setGlobalJobParameters(new UserData(OBJECT_MAPPER
+            .convertValue(userMap.get("options"), TYPE_REF_VAL_OBJECT).entrySet().stream()
+            .collect(HashMap::new,
+                (map, entry) -> map.put(entry.getKey(), null != entry.getValue() ? entry.getValue()
+                    .toString() : (String) entry.getValue()), HashMap::putAll)));
 
     JobExecutionResult result;
     try {
@@ -193,5 +210,18 @@ public class FlinkRunner extends PipelineRunner<PipelineResult> {
   JobGraph getJobGraph(Pipeline p) {
     FlinkPipelineExecutionEnvironment env = new FlinkPipelineExecutionEnvironment(options);
     return env.getJobGraph(p);
+  }
+
+  static class UserData extends ExecutionConfig.GlobalJobParameters {
+    private final Map<String, String> data;
+
+    private UserData(Map<String, String> data) {
+      this.data = data;
+    }
+
+    @Override
+    public Map<String, String> toMap() {
+      return data;
+    }
   }
 }
