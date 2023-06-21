@@ -106,7 +106,6 @@ public class FlinkRunner extends PipelineRunner<PipelineResult> {
 
     Map<String, Object> userMap = OBJECT_MAPPER.convertValue(pipeline.getOptions(),
         TYPE_REF_VAL_OBJECT);
-
     env.getStreamExecutionEnvironment().getConfig()
         .setGlobalJobParameters(new UserData(OBJECT_MAPPER
             .convertValue(userMap.get("options"), TYPE_REF_VAL_OBJECT).entrySet().stream()

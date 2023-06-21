@@ -56,8 +56,10 @@ public class StreamSources {
       StreamStatusMaintainer streamStatusMaintainer,
       Output<StreamRecord<OutT>> collector)
       throws Exception {
+
     streamSource.run(
-        lockingObject, streamStatusMaintainer, collector, createOperatorChain(streamSource));
+        lockingObject, streamStatusMaintainer, collector, createOperatorChain(streamSource), true,
+        null);
   }
 
   private static OperatorChain<?, ?> createOperatorChain(AbstractStreamOperator<?> operator) {
